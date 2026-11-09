@@ -22,7 +22,7 @@ from typing import Literal
 
 DigitMode = Literal["fa", "en", "keep"]
 
-ZWNJ = "‌"
+ZWNJ = "\u200c"
 
 PERSIAN_DIGITS = "۰۱۲۳۴۵۶۷۸۹"
 ARABIC_DIGITS = "٠١٢٣٤٥٦٧٨٩"
@@ -30,49 +30,50 @@ LATIN_DIGITS = "0123456789"
 
 # Letters of the Arabic script block that can appear in Persian words. Digits
 # (U+0660-U+0669, U+06F0-U+06F9) and punctuation are deliberately excluded.
-LETTER = r"[ء-غف-يٱ-ۓەۺ-ۼ]"
+LETTER_CHARS = "\u0621-\u063a\u0641-\u064a\u0671-\u06d3\u06d5\u06fa-\u06fc"
+LETTER = f"[{LETTER_CHARS}]"
 
 # Arabic code points that have a dedicated Persian equivalent.
 _CHAR_MAP: dict[str, str] = {
-    "ي": "ی",  # ي ARABIC YEH        -> ی FARSI YEH
-    "ى": "ی",  # ى ALEF MAKSURA      -> ی
-    "ك": "ک",  # ك ARABIC KAF        -> ک KEHEH
-    "ة": "ه",  # ة TEH MARBUTA       -> ه
-    "أ": "ا",  # أ ALEF WITH HAMZA ABOVE -> ا
-    "إ": "ا",  # إ ALEF WITH HAMZA BELOW -> ا
-    "ٱ": "ا",  # ٱ ALEF WASLA        -> ا
-    "ە": "ه",  # ە AE                -> ه
+    "\u064a": "\u06cc",  # ي ARABIC YEH        -> ی FARSI YEH
+    "\u0649": "\u06cc",  # ى ALEF MAKSURA      -> ی
+    "\u0643": "\u06a9",  # ك ARABIC KAF        -> ک KEHEH
+    "\u0629": "\u0647",  # ة TEH MARBUTA       -> ه
+    "\u0623": "\u0627",  # أ ALEF WITH HAMZA ABOVE -> ا
+    "\u0625": "\u0627",  # إ ALEF WITH HAMZA BELOW -> ا
+    "\u0671": "\u0627",  # ٱ ALEF WASLA        -> ا
+    "\u06d5": "\u0647",  # ە AE                -> ه
 }
 
 # ۀ (heh with yeh above) and ه + combining hamza both spell the ezafe "ه‌ی".
-_HEH_YEH = re.compile("ۀ|هٔ")
+_HEH_YEH = re.compile("\u06c0|\u0647\u0654")
 
 # Harakat, tanwin, shadda, sukun, small high marks and superscript alef.
-_DIACRITICS = re.compile("[ؐ-ًؚ-ٰٟۖ-ۭ]")
-_TATWEEL = re.compile("ـ+")
+_DIACRITICS = re.compile("[\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06ed]")
+_TATWEEL = re.compile("\u0640+")
 # Directional marks and other invisible formatting characters (ZWNJ is handled apart).
-_INVISIBLE = re.compile("[​‍‎‏‪-‮⁦-⁩﻿]")
+_INVISIBLE = re.compile("[\u200b\u200d\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 
-_SPACES = re.compile(r"[ \t\f\v  -   　]+")
+_SPACES = re.compile(r"[ \t\f\v\u00a0\u2000-\u200a\u202f\u205f\u3000]+")
 _MANY_NEWLINES = re.compile(r"\n{3,}")
 
 # Verbal prefixes "می" / "نمی" written as a separate word: "می روم" -> "می‌روم".
-_PREFIX = re.compile(rf"(?<!{LETTER[:-1]}‌])(ن?می)[ ‌]+(?={LETTER})")
+_PREFIX = re.compile(rf"(?<![{LETTER_CHARS}\u200c])(ن?می)[ \u200c]+(?={LETTER})")
 # Plural / comparative / superlative suffixes written as a separate word.
 _SUFFIX = re.compile(
-    rf"({LETTER})[ ‌]+"
+    rf"({LETTER})[ \u200c]+"
     r"(هایی|هایم|هایت|هایش|هایمان|هایتان|هایشان|های|ها|ترین|تر)"
     rf"(?!{LETTER})"
 )
-# Copula / pronominal endings after a final heh: "رفته اند" -> "رفته‌اند".
-_HEH_SUFFIX = re.compile(rf"(ه)[ ‌]+(ام|ای|ایم|اید|اند|اش)(?!{LETTER})")
-_ZWNJ_RUNS = re.compile("‌{2,}")
-_ZWNJ_NEAR_SPACE = re.compile(r"‌*(\s)‌*")
-_ZWNJ_EDGES = re.compile(rf"(?<!{LETTER})‌|‌(?!{LETTER})")
+# Ezafe and copula/pronominal endings after a final heh: "خانه ی" / "رفته اند".
+_HEH_SUFFIX = re.compile(rf"(ه)[ \u200c]+(ی|ام|ای|ایم|اید|اند|اش)(?!{LETTER})")
+_ZWNJ_RUNS = re.compile("\u200c{2,}")
+_ZWNJ_NEAR_SPACE = re.compile(r"\u200c*(\s)\u200c*")
+_ZWNJ_EDGES = re.compile(rf"(?<!{LETTER})\u200c|\u200c(?!{LETTER})")
 
 _SPACE_BEFORE_PUNCT = re.compile(r"[ \t]+([،؛؟!:.»)\]])")
 _SPACE_AFTER_OPEN = re.compile(r"([«(\[])[ \t]+")
-_LATIN_PUNCT_AFTER_PERSIAN = re.compile(rf"(?<={LETTER})[ \t]*([,;?])")
+_LATIN_PUNCT_AFTER_PERSIAN = re.compile(rf"(?<=[{LETTER_CHARS}»])[ \t]*([,;?])")
 _PUNCT_NEEDS_SPACE = re.compile(rf"([،؛؟!:.])(?={LETTER}|«)")
 _STRAIGHT_QUOTES = re.compile(rf'"([^"\n]*{LETTER}[^"\n]*)"')
 _LATIN_TO_PERSIAN_PUNCT = {",": "،", ";": "؛", "?": "؟"}
@@ -158,7 +159,7 @@ class Normalizer:
         text = text.replace("\r\n", "\n").replace("\r", "\n")
         text = _INVISIBLE.sub("", text)
         if cfg.unify_characters:
-            text = _HEH_YEH.sub("ه‌ی", text)
+            text = _HEH_YEH.sub("\u0647\u200c\u06cc", text)
             text = text.translate(self._char_table)
         if cfg.remove_diacritics:
             text = _DIACRITICS.sub("", text)
@@ -188,9 +189,9 @@ class Normalizer:
 
     @staticmethod
     def _zwnj(text: str) -> str:
-        text = _PREFIX.sub(r"\1‌", text)
-        text = _SUFFIX.sub(r"\1‌\2", text)
-        text = _HEH_SUFFIX.sub(r"\1‌\2", text)
+        text = _PREFIX.sub(r"\1" + ZWNJ, text)
+        text = _SUFFIX.sub(r"\1" + ZWNJ + r"\2", text)
+        text = _HEH_SUFFIX.sub(r"\1" + ZWNJ + r"\2", text)
         text = _ZWNJ_RUNS.sub(ZWNJ, text)
         text = _ZWNJ_NEAR_SPACE.sub(r"\1", text)
         return _ZWNJ_EDGES.sub("", text)

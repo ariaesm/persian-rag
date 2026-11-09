@@ -71,6 +71,7 @@ def test_invalid_digit_mode() -> None:
         ("بزرگ ترین شهر", f"بزرگ{ZWNJ}ترین شهر"),
         ("رفته اند", f"رفته{ZWNJ}اند"),
         ("خسته ام", f"خسته{ZWNJ}ام"),
+        ("ادویه ی ایرانی", f"ادویه{ZWNJ}ی ایرانی"),
     ],
 )
 def test_zwnj_inserted_around_affixes(raw: str, expected: str) -> None:
@@ -100,7 +101,7 @@ def test_whitespace_collapsed_but_paragraphs_kept() -> None:
 def test_persian_punctuation() -> None:
     assert normalize("چرا?") == "چرا؟"
     assert normalize("سیب , پرتقال ; موز") == "سیب، پرتقال؛ موز"
-    assert normalize('او گفت "سلام" و رفت') == "او گفت «سلام» و رفت"
+    assert normalize('او گفت "سلام" , و رفت') == "او گفت «سلام»، و رفت"
     assert normalize("« سلام »") == "«سلام»"
     assert normalize("سلام،خوبی؟بله") == "سلام، خوبی؟ بله"
 

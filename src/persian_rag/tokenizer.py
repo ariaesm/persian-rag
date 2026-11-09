@@ -10,7 +10,7 @@ from persian_rag.normalizer import ZWNJ, Normalizer
 from persian_rag.stopwords import DEFAULT_STOPWORDS
 
 # A token is a run of word characters, optionally joined by ZWNJ ("می‌روم", "کتاب‌ها").
-_TOKEN = re.compile(r"\w+(?:‌\w+)*", re.UNICODE)
+_TOKEN = re.compile(r"\w+(?:\u200c\w+)*", re.UNICODE)
 
 
 def tokenize(text: str) -> list[str]:
