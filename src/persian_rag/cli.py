@@ -11,6 +11,7 @@ from collections.abc import Sequence
 
 from persian_rag import __version__
 from persian_rag.embeddings import Embedder, HashingEmbedder, OpenAIEmbedder
+from persian_rag.evaluation import format_table, load_qa, run_benchmark
 from persian_rag.http_client import APIError
 from persian_rag.index import Index
 from persian_rag.llm import ENV_API_KEY, ChatClient, LLMSettings
@@ -109,6 +110,28 @@ def cmd_ask(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_eval(args: argparse.Namespace) -> int:
+    """Compare retrievers with and without normalization on a QA set."""
+    docs = load_documents(args.corpus)
+    qa = load_qa(args.qa)
+    rows = run_benchmark(docs, qa, ks=args.k, chunk_size=args.chunk_size, overlap=args.overlap)
+    if args.json:
+        payload = [
+            {
+                "retriever": r.retriever,
+                "normalized": r.normalized,
+                "recall": {str(k): v for k, v in r.recall.items()},
+                "mrr": r.mrr,
+            }
+            for r in rows
+        ]
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(f"{len(docs)} documents, {len(qa)} questions\n")
+        print(format_table(rows))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser."""
     parser = argparse.ArgumentParser(
@@ -147,6 +170,14 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--model", default=None, help="override PERSIAN_RAG_MODEL")
             p.add_argument("--base-url", default=None, help="override PERSIAN_RAG_BASE_URL")
             p.set_defaults(func=cmd_ask)
+    p = sub.add_parser("eval", help="evaluate retrieval (Recall@k, MRR)")
+    p.add_argument("--corpus", default="examples/corpus", help="documents directory")
+    p.add_argument("--qa", default="examples/qa.jsonl", help="JSONL question set")
+    p.add_argument("-k", type=int, nargs="+", default=[1, 3, 5], help="cut-offs for Recall@k")
+    p.add_argument("--chunk-size", type=int, default=120)
+    p.add_argument("--overlap", type=int, default=30)
+    p.add_argument("--json", action="store_true", help="print JSON")
+    p.set_defaults(func=cmd_eval)
     return parser
 
 
