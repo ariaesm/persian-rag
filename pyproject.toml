@@ -58,6 +58,8 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "N", "D"]
 ignore = [
     # Persian text legitimately contains characters ruff considers "ambiguous".
     "RUF001", "RUF002", "RUF003",
+    # Word lists read better as whitespace-separated strings.
+    "SIM905",
     # Docstring style: keep it pragmatic.
     "D100", "D104", "D105", "D107", "D203", "D213", "D413",
 ]
