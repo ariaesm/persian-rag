@@ -8,6 +8,10 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from typing import Protocol, runtime_checkable
 
+import numpy as np
+
+from persian_rag.embeddings import Embedder
+from persian_rag.normalizer import Normalizer
 from persian_rag.schema import Chunk, SearchResult
 from persian_rag.tokenizer import Analyzer
 
@@ -95,3 +99,91 @@ class BM25Retriever:
         """Return the top ``k`` chunks by BM25 score (only chunks with score > 0)."""
         ranked = _top_k(self.scores(query), k)
         return [SearchResult(self.chunks[i], s) for i, s in ranked if s > 0]
+
+
+class DenseRetriever:
+    """Cosine-similarity search over embeddings held in a numpy matrix."""
+
+    def __init__(
+        self,
+        chunks: Sequence[Chunk],
+        embedder: Embedder,
+        *,
+        preprocess: Callable[[str], str] | None = None,
+        matrix: np.ndarray | None = None,
+    ) -> None:
+        """Embed (or adopt pre-computed embeddings for) ``chunks``.
+
+        Args:
+            chunks: Passages to index.
+            embedder: Any :class:`~persian_rag.embeddings.Embedder`.
+            preprocess: Applied to chunk texts and queries before embedding
+                (defaults to the Persian normalizer).
+            matrix: Pre-computed, row-aligned embeddings (e.g. loaded from disk).
+
+        """
+        self.chunks = list(chunks)
+        self.embedder = embedder
+        self.preprocess = preprocess if preprocess is not None else Normalizer()
+        if matrix is None:
+            texts = [self.preprocess(c.text) for c in self.chunks]
+            matrix = embedder.embed(texts) if texts else np.zeros((0, 0), dtype=np.float32)
+        if matrix.shape[0] != len(self.chunks):
+            raise ValueError("embedding matrix rows must match the number of chunks")
+        self.matrix = matrix.astype(np.float32, copy=False)
+
+    def search(self, query: str, k: int = 5) -> list[SearchResult]:
+        """Return the ``k`` chunks with the highest cosine similarity to ``query``."""
+        if not self.chunks or k <= 0:
+            return []
+        q = self.embedder.embed([self.preprocess(query)])[0]
+        sims = self.matrix @ q
+        k = min(k, len(self.chunks))
+        idx = np.argpartition(-sims, k - 1)[:k]
+        idx = idx[np.lexsort((idx, -sims[idx]))]
+        return [SearchResult(self.chunks[i], float(sims[i])) for i in idx if sims[i] > 0]
+
+
+class HybridRetriever:
+    """Fuse several retrievers with (weighted) Reciprocal Rank Fusion.
+
+    ``score(d) = Σ_r w_r / (rrf_k + rank_r(d))`` with 1-based ranks. RRF only uses
+    ranks, so it combines BM25 and cosine scores without any calibration.
+    """
+
+    def __init__(
+        self,
+        retrievers: Sequence[Retriever],
+        *,
+        weights: Sequence[float] | None = None,
+        rrf_k: int = 60,
+        candidates: int = 50,
+    ) -> None:
+        """Configure fusion.
+
+        Args:
+            retrievers: Retrievers to fuse.
+            weights: Optional per-retriever weights (default: all 1.0).
+            rrf_k: RRF smoothing constant (60 in the original paper).
+            candidates: How many results to pull from each retriever before fusing.
+
+        """
+        if not retrievers:
+            raise ValueError("need at least one retriever")
+        self.retrievers = list(retrievers)
+        self.weights = list(weights) if weights is not None else [1.0] * len(self.retrievers)
+        if len(self.weights) != len(self.retrievers):
+            raise ValueError("weights must match retrievers")
+        self.rrf_k = rrf_k
+        self.candidates = candidates
+
+    def search(self, query: str, k: int = 5) -> list[SearchResult]:
+        """Return the top ``k`` chunks by fused RRF score."""
+        fused: dict[str, float] = defaultdict(float)
+        by_id: dict[str, Chunk] = {}
+        for retriever, weight in zip(self.retrievers, self.weights, strict=True):
+            for rank, hit in enumerate(retriever.search(query, self.candidates), start=1):
+                fused[hit.chunk.id] += weight / (self.rrf_k + rank)
+                by_id.setdefault(hit.chunk.id, hit.chunk)
+        ranked = sorted(fused.items(), key=lambda item: (-item[1], item[0]))[:k]
+        return [SearchResult(by_id[cid], score) for cid, score in ranked]
